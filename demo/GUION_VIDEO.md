@@ -1,96 +1,69 @@
-# Guion del video demostrativo (≈ 5–7 min)
+# Guion del video demostrativo (máx. 3:00 · objetivo 2:40)
 
-Preparación: terminal con fuente grande, en la raíz del repo, ya compilado (`make` o
-`cmake --build build`). Cada ejemplo se puede correr solo con `demo/demo.sh N` (pausa con Enter
-entre ejemplos) o tecleando los comandos a mano en `./build/rv32sim <programa>`.
+Los comandos de cada segmento los ejecuta `demo/demo_corto.sh` de corrido: una pausa con
+Enter antes de cada ejemplo, limpia la pantalla y muestra todo el ejemplo de una vez. Mientras
+tanto, lee el texto de la columna derecha. También se pueden teclear a mano en el REPL
+(`./build/rv32sim <programa>`).
+
+## Tiempos
+
+| Segmento | Duración | Acumulado |
+|---|---|---|
+| Intro | 0:20 | 0:20 |
+| Ej. 1: paso a paso (riscvtest) | 0:40 | 1:00 |
+| Ej. 2: riscvtest completo, little-endian | 0:30 | 1:30 |
+| Ej. 3: quicksort | 0:35 | 2:05 |
+| Ej. 4: árbol simétrico | 0:25 | 2:30 |
+| Cierre | 0:10 | **2:40** |
+
+Margen hasta el máximo: 20 s.
 
 ---
 
-## 0. Introducción (≈ 45 s)
+## Intro (0:00 – 0:20)
 
-- "Este es `rv32sim`, un simulador de software del ISA RV32I escrito en C++17."
-- Mostrar rápidamente el árbol del repo: `src/` (cpu, memory, decode, disasm, syscalls, elf,
-  gdbstub, main = REPL), `tests/`.
-- Puntos clave: carga un binario crudo en `0x0` (exportado de CPUlator) o un ELF; memoria de
-  32 bits little-endian dispersa por páginas de 4 KiB; las 37 instrucciones de RV32I; ejecución
-  paso a paso; inspección de PC, registros y memoria.
-- Mostrar `make test`: 40 tests unitarios y los programas del enunciado en verde.
+| Comandos | Texto a decir |
+|---|---|
+| `./build/rv32sim_tests \| tail -1`<br>→ `40 tests, 418 comprobaciones, 0 fallos` | Este es rv32sim, un simulador escrito en C++17. Carga un binario crudo en la dirección cero y ejecuta las treinta y siete instrucciones de RV32I, con memoria little-endian. El desensamblador usa nombres ABI: x2 es sp, x5 es t0. Pasa sus cuarenta tests unitarios. |
 
-## 1. Instrucciones aritméticas paso a paso (≈ 1 min) — `demo/demo.sh 1`
+## Ejemplo 1: paso a paso (0:20 – 1:00)
 
-```
-./build/rv32sim tests/bin/riscvtest.bin
-> pc
-> dis 0 6
-> step          # addi x2, x0, 5
-> regs x2
-> pc            # avanzó a 0x4
-> step          # addi x3, x0, 12
-> regs x3
-> step          # addi x7, x3, -9   -> inmediato negativo
-> regs x7       # 3
-> step          # or  x4, x7, x2    -> 3 | 5 = 7
-> regs x4
-> step          # and x5, x3, x4    -> 12 & 7 = 4
-> step          # add x5, x5, x4    -> 11
-> regs x5 x4 t0 tp
-```
+| Comandos | Texto a decir |
+|---|---|
+| `./build/rv32sim tests/bin/riscvtest.bin`<br>`pc` → `0x00000000`<br>`step` → `addi sp, zero, 5`<br>`step` → `addi gp, zero, 12`<br>`step` → `addi t2, gp, -9`<br>`step` → `or tp, t2, sp`<br>`regs x2 x3 x7 x4` → `5, 0xc, 3, 7`<br>`pc` → `0x00000010` | Ejemplo uno: ejecución paso a paso. El PC empieza en cero. Cada step muestra la dirección, la instrucción en hexadecimal y desensamblada. Primero, cinco en x2, que es sp. Luego doce en x3. Después un inmediato negativo: doce menos nueve, tres en x7. Y un or: tres or cinco, siete en x4. Con regs compruebo los cuatro registros. El PC avanzó de cuatro en cuatro, hasta hexadecimal diez. |
 
-Qué decir: cada `step` muestra la dirección, la palabra en hex y el desensamblado; los registros
-se pueden pedir como `x5` o por nombre ABI (`t0`); el PC avanza de 4 en 4.
+## Ejemplo 2: riscvtest completo (1:00 – 1:30)
 
-## 2. `riscvtest.s` escribe 25 en la dirección 100 (≈ 45 s) — `demo/demo.sh 2`
+| Comandos | Texto a decir |
+|---|---|
+| `./build/rv32sim tests/bin/riscvtest.bin`<br>`mem 0x64 0x67` → `00 00 00 00`<br>`run` → bucle en `0x50`, 19 instrucciones<br>`mem 0x64 0x67` → `19 00 00 00`<br>`memw 100` → `0x00000019 (25)` | Ejemplo dos: el programa completo. Antes de correr, la dirección cien vale cero. Run ejecuta diecinueve instrucciones y se detiene en el bucle final. Ahora la memoria muestra uno-nueve, cero, cero, cero: el byte menos significativo va primero, es little-endian. Hexadecimal diecinueve es veinticinco, y memw lo confirma. |
 
-```
-./build/rv32sim tests/bin/riscvtest.bin
-> mem 0x64 0x67      # 00 00 00 00
-> run
-> mem 0x64 0x67      # 19 00 00 00  -> 0x19 = 25, little-endian
-> memw 100
-> regs x2 x9
-```
+## Ejemplo 3: quicksort (1:30 – 2:05)
 
-Qué decir: el programa de Harris & Harris prueba add, sub, and, or, slt, addi, lw, sw, beq y jal;
-si todo funciona escribe 25 en la dirección 100. Señalar el orden de bytes little-endian.
+| Comandos | Texto a decir |
+|---|---|
+| `./build/rv32sim tests/bin/quicksort.bin`<br>`break 0x48`<br>`run` → para en `0x48` (`call _qsort`)<br>`mem 0x1000 0x101B` → `06 … 04 … 03 … 02 … 01 … 08 … 09`<br>`run` → bucle en `0x4c`<br>`mem 0x1000 0x101B` → `01 … 02 … 03 … 04 … 06 … 08 … 09` | Ejemplo tres: quicksort recursivo. Pongo un breakpoint justo en la llamada a qsort y corro. En la dirección mil hexadecimal está el arreglo original: seis, cuatro, tres, dos, uno, ocho, nueve, cuatro bytes cada uno. Sigo con run hasta el bucle final. El arreglo quedó ordenado: uno, dos, tres, cuatro, seis, ocho, nueve. |
 
-## 3. Quicksort (≈ 1 min 15 s) — `demo/demo.sh 3`
+## Ejemplo 4: árbol simétrico (2:05 – 2:30)
 
-```
-./build/rv32sim tests/bin/quicksort.bin
-> break 0x48          # justo antes de "call _qsort"
-> run
-> mem 0x1000 0x101B   # 6 4 3 2 1 8 9
-> memw 0x1000 7
-> run                 # se detiene en el "j _end" final
-> mem 0x1000 0x101B   # 1 2 3 4 6 8 9
-> memw 0x1000 7
-```
+| Comandos | Texto a decir |
+|---|---|
+| `./build/rv32sim tests/bin/simetrico.bin`<br>`break 0x44`<br>`run` → para en `0x44` (`call is_symmetric`)<br>`memw 0x1000 7` → `6 4 4 1 2 2 1`<br>`regs a0 a1` → `0x1000, 7`<br>`run` → bucle en `0x48`<br>`regs a0` → `1` | Ejemplo cuatro: árbol simétrico. Breakpoint en la llamada a is_symmetric. El árbol está en memoria; a0 apunta al arreglo y a1 es siete, el tamaño. Tras run, a0 vale uno: el árbol es simétrico. |
 
-Qué decir: el programa es recursivo (usa `call`/`ret` = `jal`/`jalr` y la pila con `sw`/`lw`);
-`run` se detiene solo al detectar el bucle `j _end` (instrucción que salta a sí misma).
+## Cierre (2:30 – 2:40)
 
-## 4. Árbol simétrico (≈ 1 min) — `demo/demo.sh 4`
+| Comandos | Texto a decir |
+|---|---|
+| *(ninguno)* | Como extras: ecall estilo SPIM, carga de ELF y stub para GDB. El código y el informe están en el repositorio. Gracias. |
 
-```
-./build/rv32sim tests/bin/simetrico.bin
-> break 0x44          # "call is_symmetric"
-> run
-> memw 0x1000 7       # árbol {6,4,4,1,2,2,1}
-> regs a0 a1          # a0 = 0x1000 (arreglo), a1 = 7 (n)
-> run
-> regs a0             # 1 -> el árbol es simétrico
-```
+---
 
-## 5. Extras (opcional, ≈ 1 min) — `demo/demo.sh 5`
+## Checklist antes de grabar
 
-- `ecall` estilo SPIM desde un ELF32:
-  `./build/rv32sim tests/bin/ecall_demo.elf` → `dis 0x10000 12`, `run` → imprime `Suma 1..10 = 55`.
-- GDB: `./build/rv32sim --gdb 1234 tests/bin/quicksort.bin` y en otra terminal
-  `gdb -ex "set architecture riscv:rv32" -ex "target remote :1234"`, luego `x/5i $pc`,
-  `break *0x4c`, `continue`, `x/7dw 0x1000`.
-- Manejo de errores: en el REPL, `foo`, `mem zz`, `regs x99` muestran errores sin cerrar el programa.
-
-## Cierre (≈ 15 s)
-
-- Resumen: 37 instrucciones con tests de casos borde, 3 programas del enunciado verificados,
-  extras (desensamblador, ecall, ELF, GDB). Enlace al repositorio en el informe.
+- [ ] Fuente de la terminal grande (≥ 18 pt) y ventana maximizada; en pantalla deben caber las
+      ~20 líneas de cada ejemplo.
+- [ ] Terminal limpia: `clear`, sin notificaciones ni otras ventanas.
+- [ ] Repo compilado: `make` (o `cmake --build build`) y `make test` en verde.
+- [ ] Hacer una pasada completa con `demo/demo_corto.sh` cronometrando; si pasa de 2:50, recortar
+      texto, no comandos.
+- [ ] Probar el micrófono y grabar 5 s de prueba.
