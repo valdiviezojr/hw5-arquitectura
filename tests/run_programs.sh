@@ -50,6 +50,15 @@ check_run_finished riscvtest "$out"
 check "riscvtest: [100] == 25" "$(words <<<"$out")" "25"
 check "riscvtest: bytes 0x64-0x67" "$(grep -oE 'Memoria \(0x64-0x67\):.*' <<<"$out" | cut -d: -f2 | sed 's/^ //')" "19 00 00 00"
 
+# ------------------------------------------- extras: ecall (crudo y ELF)
+for f in ecall_demo.bin ecall_demo.elf; do
+    if [[ -f "$BIN/$f" ]]; then
+        out=$(printf 'run\nexit\n' | "$SIM" "$BIN/$f")
+        check "$f: salida por ecall" "$(grep -oE '^Suma 1\.\.10 = [0-9]+' <<<"$out")" "Suma 1..10 = 55"
+        check "$f: exit2 con código 0" "$(grep -oE 'código de salida [0-9]+' <<<"$out")" "código de salida 0"
+    fi
+done
+
 echo
 echo "$pass correctos, $fail fallidos"
 [[ $fail -eq 0 ]]

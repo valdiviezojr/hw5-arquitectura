@@ -25,11 +25,19 @@ add_library(rv32core STATIC
   src/decode.cpp
   src/cpu.cpp
   src/loader.cpp
+  src/disasm.cpp
+  src/syscalls.cpp
+  src/elf.cpp
+  src/gdbstub.cpp
 )
 target_include_directories(rv32core PUBLIC src)
 
 add_executable(rv32sim src/main.cpp)
 target_link_libraries(rv32sim PRIVATE rv32core)
+
+# Helper (no es parte del simulador): genera tests/bin/ecall_demo.{bin,elf}.
+add_executable(mkdemo tools/mkdemo.cpp)
+add_custom_target(demo-bins COMMAND mkdemo ${CMAKE_SOURCE_DIR}/tests/bin DEPENDS mkdemo)
 
 # Tests unitarios (sin dependencias externas).
 enable_testing()

@@ -4,10 +4,16 @@
 #include <string>
 #include <vector>
 
+#include <sstream>
+
 #include "cpu.hpp"
 #include "decode.hpp"
+#include "disasm.hpp"
+#include "elf.hpp"
+#include "elf_builder.hpp"
 #include "encoder.hpp"
 #include "memory.hpp"
+#include "syscalls.hpp"
 
 using namespace enc;
 
@@ -458,6 +464,130 @@ TEST(riscvtest_program_from_listing) {
     CHECK_EQ(c.mem.read32(100), 25);
     CHECK_EQ(c.reg(2), 25);
     CHECK_EQ(c.reg(3), 0x44);
+}
+
+// ========================================================= desensamblador ===
+TEST(disasm_formats) {
+    CHECK(disasm(0x00500113, 0) == "addi sp, zero, 5");
+    CHECK(disasm(0xFF718393, 0) == "addi t2, gp, -9");
+    CHECK(disasm(0x0471AA23, 0) == "sw t2, 84(gp)");
+    CHECK(disasm(0x06002103, 0) == "lw sp, 96(zero)");
+    CHECK(disasm(0x02728863, 0x18) == "beq t0, t2, 0x48");
+    CHECK(disasm(0x008001EF, 0x40) == "jal gp, 0x48");
+    CHECK(disasm(0x402383B3, 0) == "sub t2, t2, sp");
+    CHECK(disasm(0x00008067, 0) == "jalr zero, 0(ra)");
+    CHECK(disasm(0x00010137, 0) == "lui sp, 0x10");
+    CHECK(disasm(SRAI(T0, A0, 3), 0) == "srai t0, a0, 3");
+    CHECK(disasm(BNE(T1, ZERO, -8), 0x20) == "bne t1, zero, 0x18");
+    CHECK(disasm(ECALL, 0) == "ecall");
+    CHECK(disasm(0xAAAAAAAA, 0) == ".word 0xaaaaaaaa  # inválida");
+}
+
+// =============================================================== syscalls ===
+TEST(syscalls_print_and_exit) {
+    Cpu c = make({ADDI(A0, 0, -42), ADDI(A7, 0, 1), ECALL,              // print_int
+                  ADDI(A0, 0, 0x100), ADDI(A7, 0, 4), ECALL,            // print_string
+                  ADDI(A0, 0, 'Z'), ADDI(A7, 0, 11), ECALL,             // print_char
+                  ADDI(A0, 0, -1), ADDI(A7, 0, 36), ECALL,              // print_unsigned
+                  ADDI(A0, 0, 255), ADDI(A7, 0, 34), ECALL,             // print_hex
+                  ADDI(A0, 0, 7), ADDI(A7, 0, 17), ECALL,               // exit2(7)
+                  ADDI(T0, 0, 1)});
+    const char* str = " hola ";
+    for (int k = 0; str[k]; ++k) c.mem.write8(0x100 + static_cast<uint32_t>(k), static_cast<uint8_t>(str[k]));
+    std::istringstream in;
+    std::ostringstream out;
+    install_spim_syscalls(c, in, out);
+    run(c, 15);
+    CHECK_EQ(static_cast<int>(c.step()), static_cast<int>(Status::Ok));
+    CHECK_EQ(static_cast<int>(c.step()), static_cast<int>(Status::Ok));
+    CHECK_EQ(static_cast<int>(c.step()), static_cast<int>(Status::Halted));
+    CHECK(out.str() == "-42 hola Z42949672950x000000ff");
+    CHECK(c.halted());
+    CHECK_EQ(c.exit_code, 7);
+    CHECK_EQ(c.reg(T0), 0);  // no se ejecutó nada después del exit
+}
+
+TEST(syscalls_read_and_sbrk) {
+    Cpu c = make({ADDI(A7, 0, 5), ECALL, ADDI(S0, A0, 0),                // read_int
+                  ADDI(A7, 0, 12), ECALL, ADDI(T0, A0, 0),               // read_char
+                  ADDI(A0, 0, 0x200), ADDI(A1, 0, 4), ADDI(A7, 0, 8), ECALL,  // read_string
+                  ADDI(A0, 0, 10), ADDI(A7, 0, 9), ECALL, ADDI(T1, A0, 0),    // sbrk(10)
+                  ADDI(A0, 0, 4), ECALL, ADDI(T2, A0, 0),                // sbrk(4)
+                  ADDI(A7, 0, 10), ECALL});                              // exit
+    std::istringstream in("-17\nXabcdef\n");
+    std::ostringstream out;
+    install_spim_syscalls(c, in, out);
+    run(c, 18);
+    CHECK_EQ(static_cast<int>(c.step()), static_cast<int>(Status::Halted));
+    CHECK_EQ(c.reg(S0), static_cast<uint32_t>(-17));
+    CHECK_EQ(c.reg(T0), 'X');
+    CHECK_EQ(c.mem.read8(0x200), 'a');
+    CHECK_EQ(c.mem.read8(0x202), 'c');
+    CHECK_EQ(c.mem.read8(0x203), 0);  // a1 = 4 -> 3 caracteres + '\0'
+    CHECK_EQ(c.reg(T1), HEAP_BASE);
+    CHECK_EQ(c.reg(T2), HEAP_BASE + 12);  // 10 redondeado a 12
+    CHECK_EQ(c.exit_code, 0);
+}
+
+TEST(syscall_unknown_or_bad_input_is_error) {
+    Cpu c = make({ADDI(A7, 0, 2), ECALL});  // print_float: no soportado en RV32I
+    std::istringstream in("no-es-numero\n");
+    std::ostringstream out;
+    install_spim_syscalls(c, in, out);
+    run(c, 1);
+    CHECK_EQ(static_cast<int>(c.step()), static_cast<int>(Status::Error));
+    CHECK(c.message().find("a7=2") != std::string::npos);
+    CHECK_EQ(c.pc, 4);
+
+    Cpu d = make({ADDI(A7, 0, 5), ECALL});
+    install_spim_syscalls(d, in, out);
+    run(d, 1);
+    CHECK_EQ(static_cast<int>(d.step()), static_cast<int>(Status::Error));
+    CHECK(d.message().find("read_int") != std::string::npos);
+}
+
+// ==================================================================== ELF ===
+TEST(elf_load_segment_entry_and_bss) {
+    std::vector<uint8_t> img = {0x13, 0x05, 0xA0, 0x02, 0xFF, 0xEE};  // addi a0, zero, 42 + datos
+    const auto f = elfb::build(img, 0x80000000, 0x80000000, 16);
+    CHECK(is_elf(f));
+    Memory m;
+    m.write8(0x80000007, 0x99);  // basura que .bss debe poner en 0
+    uint32_t entry = 0;
+    std::size_t bytes = 0;
+    unsigned segs = 0;
+    std::string err;
+    CHECK(load_elf(f, m, entry, bytes, segs, err));
+    CHECK_EQ(entry, 0x80000000u);
+    CHECK_EQ(segs, 1);
+    CHECK_EQ(bytes, 6 + 16);
+    CHECK_EQ(m.read32(0x80000000), 0x02A00513u);
+    CHECK_EQ(m.read8(0x80000005), 0xEE);
+    CHECK_EQ(m.read8(0x80000007), 0);
+}
+
+TEST(elf_rejects_bad_files) {
+    const auto good = elfb::build({1, 2, 3, 4}, 0x1000, 0x1000);
+    Memory m;
+    uint32_t entry;
+    std::size_t bytes;
+    unsigned segs;
+    std::string err;
+
+    auto bad_machine = good;
+    elfb::put16(bad_machine, 18, 62);  // x86-64
+    CHECK(!load_elf(bad_machine, m, entry, bytes, segs, err));
+    CHECK(err.find("RISC-V") != std::string::npos);
+
+    auto bad_class = good;
+    bad_class[4] = 2;  // ELF64
+    CHECK(!load_elf(bad_class, m, entry, bytes, segs, err));
+
+    std::vector<uint8_t> truncated(good.begin(), good.begin() + 0x101);  // segmento cortado
+    CHECK(!load_elf(truncated, m, entry, bytes, segs, err));
+    CHECK(err.find("truncado") != std::string::npos);
+
+    CHECK(!is_elf({0x13, 0x01, 0x50, 0x00}));  // binario crudo
 }
 
 // ===================================================================== main ===

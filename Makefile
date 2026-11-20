@@ -17,7 +17,7 @@ CORE_SRC := $(filter-out src/main.cpp,$(wildcard src/*.cpp))
 CORE_OBJ := $(CORE_SRC:src/%.cpp=$(BUILD)/obj/%.o)
 HEADERS  := $(wildcard src/*.hpp) $(wildcard tests/unit/*.hpp)
 
-all: $(BUILD)/rv32sim $(BUILD)/rv32sim_tests
+all: $(BUILD)/rv32sim $(BUILD)/rv32sim_tests $(BUILD)/mkdemo
 
 $(BUILD)/obj/%.o: src/%.cpp $(HEADERS)
 	@mkdir -p $(dir $@)
@@ -29,6 +29,14 @@ $(BUILD)/rv32sim: $(BUILD)/obj/main.o $(CORE_OBJ)
 $(BUILD)/rv32sim_tests: tests/unit/test_main.cpp $(CORE_OBJ) $(HEADERS)
 	$(CXX) $(CXXFLAGS) tests/unit/test_main.cpp $(CORE_OBJ) -o $@ $(LDFLAGS)
 
+# Helper que genera tests/bin/ecall_demo.{bin,elf} (make demo-bins).
+$(BUILD)/mkdemo: tools/mkdemo.cpp $(HEADERS)
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) tools/mkdemo.cpp -o $@ $(LDFLAGS)
+
+demo-bins: $(BUILD)/mkdemo
+	./$(BUILD)/mkdemo tests/bin
+
 test: all
 	./$(BUILD)/rv32sim_tests
 	./tests/run_programs.sh ./$(BUILD)/rv32sim
@@ -36,4 +44,4 @@ test: all
 clean:
 	rm -rf build build-san
 
-.PHONY: all test clean
+.PHONY: all test clean demo-bins

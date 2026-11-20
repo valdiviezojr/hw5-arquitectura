@@ -4,6 +4,8 @@
 #include <fstream>
 #include <iterator>
 
+#include "elf.hpp"
+
 bool read_file(const std::string& path, std::vector<uint8_t>& out, std::string& err) {
     std::ifstream f(path, std::ios::binary);
     if (!f) {
@@ -24,12 +26,25 @@ bool load_program(const std::string& path, Cpu& cpu, LoadInfo& info, std::string
 
     cpu.mem.clear();
     info = LoadInfo{};
+    char buf[128];
+
+    if (is_elf(data)) {
+        unsigned segments = 0;
+        if (!load_elf(data, cpu.mem, info.entry, info.bytes, segments, err)) {
+            err = "\"" + path + "\": " + err;
+            return false;
+        }
+        info.is_elf = true;
+        std::snprintf(buf, sizeof buf, "ELF32, %u segmento(s) PT_LOAD, %zu bytes", segments,
+                      info.bytes);
+        info.description = buf;
+        return true;
+    }
 
     // Binario crudo: se copia tal cual a partir de 0x00000000 y PC = 0.
     cpu.mem.load(data, 0);
     info.entry = 0;
     info.bytes = data.size();
-    char buf[96];
     std::snprintf(buf, sizeof buf, "binario crudo, %zu bytes en 0x00000000", data.size());
     info.description = buf;
     return true;
