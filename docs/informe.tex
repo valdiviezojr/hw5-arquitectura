@@ -1,17 +1,22 @@
 \documentclass[11pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
+% Latin Modern (vectorial) si está disponible; si no, Computer Modern en OT1.
+\IfFileExists{lmodern.sty}{\usepackage{lmodern}\usepackage[T1]{fontenc}}{}
 \usepackage[spanish,es-noshorthands]{babel}
 \usepackage[margin=2cm]{geometry}
 \usepackage{amssymb}
-\usepackage{booktabs}
 \usepackage{tabularx}
-\usepackage{enumitem}
-\usepackage{xcolor}
-\usepackage[hidelinks]{hyperref}
-\setlist{nosep,leftmargin=*}
+\usepackage{color}
+\IfFileExists{infwarerr.sty}{\usepackage[hidelinks]{hyperref}}{\usepackage{url}}
+% booktabs y enumitem se usan si están instalados (Overleaf los tiene);
+% si no, se usan equivalentes simples para que compile con una TeX mínima.
+\IfFileExists{booktabs.sty}{\usepackage{booktabs}}{%
+  \newcommand{\toprule}{\hline}\newcommand{\midrule}{\hline}\newcommand{\bottomrule}{\hline}}
+\IfFileExists{enumitem.sty}{\usepackage{enumitem}\setlist{nosep,leftmargin=*}}{}
+\definecolor{okgreen}{rgb}{0,0.5,0}
 \setlength{\parskip}{0.4em}
 \setlength{\parindent}{0pt}
+\setlength{\emergencystretch}{3em}  % evita desbordes con palabras en texttt
 
 % ---- Completar antes de exportar el PDF ------------------------------------
 \newcommand{\repourl}{\url{https://github.com/USUARIO/rv32sim}}
@@ -87,7 +92,7 @@ registros (por número \texttt{x5} o nombre ABI \texttt{t0}) y memoria (rango de
   \item \textbf{Errores} (instrucción inválida, PC desalineado, syscall desconocida) detienen la
     simulación con un mensaje con el PC y la palabra en hex; el simulador nunca aborta.
   \item \textbf{Fin de programa:} \texttt{ecall} exit, \texttt{ebreak}, o en \texttt{run} una
-    instrucción que salta a sí misma (\texttt{j .}), que es como terminan los programas de CPUlator.
+    instrucción que salta a sí misma (\mbox{\texttt{j .}}), que es como terminan los programas de CPUlator.
     Además hay un límite de instrucciones configurable.
   \item \texttt{sp} inicial \texttt{0x00100000} (configurable); permisos y segmentación no se modelan.
 \end{itemize}
@@ -100,24 +105,31 @@ codificador en C++, sin ensamblador. Cubren casos borde: inmediatos negativos y 
 \texttt{x0}, \texttt{lui}/\texttt{auipc} con bit alto y offsets máximo/mínimo de \texttt{jal}.
 También se ejecutó todo con \texttt{-fsanitize=address,undefined} sin errores.
 
+\medskip
 \begin{tabularx}{\linewidth}{@{}lXc@{}}
 \toprule
 \textbf{Programa} & \textbf{Verificación} & \textbf{Resultado} \\
 \midrule
 \texttt{quicksort} & \texttt{\{6,4,3,2,1,8,9\}} en \texttt{0x1000} queda \texttt{\{1,2,3,4,6,8,9\}}
-  (588 instrucciones) & \textcolor{green!50!black}{\checkmark} \\
+  (588 instrucciones) & \textcolor{okgreen}{\checkmark} \\
 \texttt{simetrico} & árbol \texttt{\{6,4,4,1,2,2,1\}} en \texttt{0x1000}; \texttt{is\_symmetric}
-  deja \texttt{a0 = 1} (146 instrucciones) & \textcolor{green!50!black}{\checkmark} \\
+  deja \texttt{a0 = 1} (146 instrucciones) & \textcolor{okgreen}{\checkmark} \\
 \texttt{riscvtest} & escribe 25 (\texttt{0x19}) en la dirección 100 (\texttt{0x64}) &
-  \textcolor{green!50!black}{\checkmark} \\
+  \textcolor{okgreen}{\checkmark} \\
 \texttt{ecall\_demo} (.bin y .elf) & imprime \texttt{Suma 1..10 = 55} y termina con exit2(0) &
-  \textcolor{green!50!black}{\checkmark} \\
+  \textcolor{okgreen}{\checkmark} \\
 \bottomrule
 \end{tabularx}
+\medskip
 
-\textbf{Cómo probar:} \texttt{make test} (o \texttt{ctest --test-dir build}) corre los tests
-unitarios y \texttt{tests/run\_programs.sh}; \texttt{demo/demo.sh} reproduce los ejemplos del video.
-Uso interactivo: \texttt{./build/rv32sim tests/bin/quicksort.bin} y luego \texttt{help}.
+\textbf{Cómo probar:}
+\begin{itemize}
+  \item Compilar: \texttt{cmake -S . -B build} y \texttt{cmake -{}-build build}.
+  \item Probar: \texttt{ctest -{}-test-dir build} o bien \texttt{make test}.
+  \item Programas del enunciado por separado: \texttt{tests/run\_programs.sh}.
+  \item \texttt{demo/demo.sh}: reproduce los ejemplos del video.
+  \item Uso interactivo: \texttt{./build/rv32sim tests/bin/quicksort.bin} y luego \texttt{help}.
+\end{itemize}
 
 \section*{6. Limitaciones}
 Solo RV32I (sin extensiones M, A, F, D, C ni CSR, modos de privilegio o interrupciones); no se
