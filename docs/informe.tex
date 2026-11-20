@@ -1,0 +1,128 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-noshorthands]{babel}
+\usepackage[margin=2cm]{geometry}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\setlist{nosep,leftmargin=*}
+\setlength{\parskip}{0.4em}
+\setlength{\parindent}{0pt}
+
+% ---- Completar antes de exportar el PDF ------------------------------------
+\newcommand{\repourl}{\url{https://github.com/USUARIO/rv32sim}}
+\newcommand{\driveurl}{\url{https://drive.google.com/drive/folders/CARPETA}}
+% -----------------------------------------------------------------------------
+
+\title{\textbf{HW\#5 --- Simulador de RISC-V (RV32I)}\\[2pt]
+\large CS3051 Arquitectura de Computadores 2026-II --- UTEC}
+\author{Onenesz}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-1.5em}
+
+\begin{itemize}
+  \item \textbf{Repositorio Git:} \repourl
+  \item \textbf{Video demostrativo y código fuente (Google Drive):} \driveurl
+\end{itemize}
+
+\section*{1. Descripción general}
+\texttt{rv32sim} es un \emph{simulador de software} del ISA RV32I. Carga un programa ya
+compilado (binario crudo exportado de CPUlator, o un ejecutable ELF32), lo ejecuta instrucción
+por instrucción y permite inspeccionar el PC, los 32 registros y la memoria en cualquier momento
+desde una consola interactiva (REPL). Está escrito en \textbf{C++17} sin dependencias externas;
+se compila con CMake (o con el \texttt{Makefile} incluido) sin warnings con
+\texttt{-Wall -Wextra -Wpedantic}.
+
+\section*{2. Arquitectura de módulos}
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Módulo} & \textbf{Responsabilidad} \\
+\midrule
+\texttt{memory} & Memoria plana de 32 bits, byte-addressable, \textbf{little-endian}, dispersa por
+  páginas de 4\,KiB (\texttt{unordered\_map}); las páginas no escritas leen 0. \\
+\texttt{decode} & Extracción de campos e inmediatos (I, S, B, U, J) con extensión de signo y
+  decodificación a una estructura \texttt{Decoded}; rechaza codificaciones reservadas. \\
+\texttt{cpu} & Estado (PC, \texttt{x0..x31}) y \texttt{step()}: ejecuta las 37 instrucciones,
+  \texttt{fence} (NOP), \texttt{ecall} y \texttt{ebreak}. \\
+\texttt{loader}, \texttt{elf} & Carga de binario crudo en \texttt{0x0} o de ELF32 (segmentos
+  \texttt{PT\_LOAD}, PC = \texttt{e\_entry}), detectado por el \emph{magic number}. \\
+\texttt{disasm} & Desensamblador con nombres ABI, compartiendo el decodificador con la CPU. \\
+\texttt{syscalls} & \texttt{ecall} estilo SPIM (tabla \emph{RV32 SPIM} de CPUlator). \\
+\texttt{gdbstub} & Servidor GDB Remote Serial Protocol sobre TCP. \\
+\texttt{main} & REPL: \texttt{step [n]}, \texttt{run}, \texttt{pc}, \texttt{regs}, \texttt{mem A B},
+  \texttt{memw}, \texttt{dis}, \texttt{break}/\texttt{delete}/\texttt{breaks}, \texttt{reset},
+  \texttt{help}, \texttt{exit}. Lee comandos de stdin, por lo que también funciona en scripts. \\
+\bottomrule
+\end{tabularx}
+
+\section*{3. Funcionalidades implementadas}
+\textbf{Obligatorias:} las 37 instrucciones de RV32I (\texttt{lui, auipc, jal, jalr}, 6 branches,
+5 loads, 3 stores, 9 aritmético-lógicas con inmediato y 10 registro-registro); memoria
+little-endian; carga de binario crudo en \texttt{0x0}; ejecución paso a paso; inspección de PC,
+registros (por número \texttt{x5} o nombre ABI \texttt{t0}) y memoria (rango de bytes o palabras).
+
+\textbf{Extras:} (1) desensamblador, visible en cada \texttt{step} y con el comando \texttt{dis};
+(2) \texttt{ecall} estilo SPIM: \emph{print\_int/string/char}, \emph{read\_int/string/char},
+\emph{sbrk}, \emph{exit/exit2}, \emph{time}, \emph{sleep}, impresión hex/binaria/sin signo;
+(3) carga de ELF32; (4) stub GDB (\texttt{?}, \texttt{g/G}, \texttt{p/P}, \texttt{m/M},
+\texttt{s}, \texttt{c}, \texttt{Z0/z0}, \texttt{qSupported}, \texttt{target.xml}), probado con
+\texttt{gdb} (\texttt{set architecture riscv:rv32}); y breakpoints en el REPL.
+
+\section*{4. Decisiones de diseño}
+\begin{itemize}
+  \item Aritmética siempre en \texttt{uint32\_t}; \texttt{int32\_t} solo en comparaciones con signo.
+    \texttt{sra}/\texttt{srai} y la extensión de signo se implementan sin depender de
+    \texttt{>>} sobre negativos (comportamiento \emph{implementation-defined} en C++17).
+  \item Los operandos se leen antes de escribir \texttt{rd} (p.\,ej.\ \texttt{jalr t0, 0(t0)});
+    las escrituras a \texttt{x0} se ignoran.
+  \item \textbf{Accesos desalineados:} permitidos para datos (byte a byte, incluso cruzando
+    páginas); un PC no múltiplo de 4 es un error.
+  \item \textbf{Errores} (instrucción inválida, PC desalineado, syscall desconocida) detienen la
+    simulación con un mensaje con el PC y la palabra en hex; el simulador nunca aborta.
+  \item \textbf{Fin de programa:} \texttt{ecall} exit, \texttt{ebreak}, o en \texttt{run} una
+    instrucción que salta a sí misma (\texttt{j .}), que es como terminan los programas de CPUlator.
+    Además hay un límite de instrucciones configurable.
+  \item \texttt{sp} inicial \texttt{0x00100000} (configurable); permisos y segmentación no se modelan.
+\end{itemize}
+
+\section*{5. Pruebas y resultados}
+40 tests unitarios (418 comprobaciones) generan las instrucciones con un pequeño
+codificador en C++, sin ensamblador. Cubren casos borde: inmediatos negativos y extremos,
+\texttt{lb} con byte $\geq$ \texttt{0x80}, \texttt{slt} vs \texttt{sltu} con \texttt{0xFFFFFFFF},
+\texttt{sra} con negativos, \texttt{jalr} con \texttt{rd==rs1}, branches hacia atrás, escrituras a
+\texttt{x0}, \texttt{lui}/\texttt{auipc} con bit alto y offsets máximo/mínimo de \texttt{jal}.
+También se ejecutó todo con \texttt{-fsanitize=address,undefined} sin errores.
+
+\begin{tabularx}{\linewidth}{@{}lXc@{}}
+\toprule
+\textbf{Programa} & \textbf{Verificación} & \textbf{Resultado} \\
+\midrule
+\texttt{quicksort} & \texttt{\{6,4,3,2,1,8,9\}} en \texttt{0x1000} queda \texttt{\{1,2,3,4,6,8,9\}}
+  (588 instrucciones) & \textcolor{green!50!black}{\checkmark} \\
+\texttt{simetrico} & árbol \texttt{\{6,4,4,1,2,2,1\}} en \texttt{0x1000}; \texttt{is\_symmetric}
+  deja \texttt{a0 = 1} (146 instrucciones) & \textcolor{green!50!black}{\checkmark} \\
+\texttt{riscvtest} & escribe 25 (\texttt{0x19}) en la dirección 100 (\texttt{0x64}) &
+  \textcolor{green!50!black}{\checkmark} \\
+\texttt{ecall\_demo} (.bin y .elf) & imprime \texttt{Suma 1..10 = 55} y termina con exit2(0) &
+  \textcolor{green!50!black}{\checkmark} \\
+\bottomrule
+\end{tabularx}
+
+\textbf{Cómo probar:} \texttt{make test} (o \texttt{ctest --test-dir build}) corre los tests
+unitarios y \texttt{tests/run\_programs.sh}; \texttt{demo/demo.sh} reproduce los ejemplos del video.
+Uso interactivo: \texttt{./build/rv32sim tests/bin/quicksort.bin} y luego \texttt{help}.
+
+\section*{6. Limitaciones}
+Solo RV32I (sin extensiones M, A, F, D, C ni CSR, modos de privilegio o interrupciones); no se
+modelan permisos de memoria ni E/S mapeada; no incluye ensamblador (por diseño); la detección de
+bucle infinito de \texttt{run} cubre solo el salto a sí mismo; el stub GDB es solo POSIX, de un
+cliente y sin watchpoints.
+
+\end{document}
